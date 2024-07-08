@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register</title>
+</head>
+<body>
+    <h1>Register</h1>
+ 
+    <form method="POST">
+        <label>User ID:</label><input type="number" name="user_id" required><br>
+        <label>Password:</label><input type="password" name="password" required><br>
+        <label>Role:</label>
+        <select name="role" required>
+            <option value="manager">Manager</option>
+            <option value="consultant">Consultant</option>
+            <option value="client">Client</option>
+        </select><br>
+        <label>email </label><input type="email" name="email" required><br>
+        <button type="submit">Register</button>
+    </form>
+    <p><a href="{{ url_for('login') }}">Login</a></p>
+</body>
+</html>

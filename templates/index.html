@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Home</title>
+</head>
+<body>
+    <h1>Client Ticketing System</h1>
+    {% if 'user_id' in session %}
+        <p>Welcome, {{ session['role'] }}!</p>
+        <a href="{{ url_for('logout') }}">Logout</a>
+        <a href="{{ url_for('manage_users') }}">Manage Users</a>
+        <a href="{{ url_for('manage_tickets') }}">Manage Tickets</a>
+    {% else %}
+        <a href="{{ url_for('login') }}">Login</a>
+    {% endif %}
+</body>
+</html>
