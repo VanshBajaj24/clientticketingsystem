@@ -1,10 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Home</title>
+    <meta charset="UTF-8">
+    <title>Manage Tickets</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
 </head>
 <body>
-    <h1>Client Ticketing System</h1>
-    
+    <h2>Manage Tickets</h2>
+    <table>
+        <tr>
+            <th>Ticket ID</th>
+            <th>Client ID</th>
+            <th>Client Name</th>
+            <th>Category</th>
+            <th>Priority</th>
+            <th>Title</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Assigned To</th>
+            <th>Assign Ticket</th>
+        </tr>
+        {% for ticket in tickets %}
+        <tr>
+            <td>{{ ticket[0] }}</td>
+            <td>{{ ticket[1] }}</td>
+            <td>{{ ticket[2] }}</td>
+            <td>{{ ticket[3] }}</td>
+            <td>{{ ticket[4] }}</td>
+            <td>{{ ticket[5] }}</td>
+            <td>{{ ticket[6] }}</td>
+            <td>{{ ticket[7] }}</td>
+            <td>{{ ticket[8] }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('assign_ticket', ticket_id=ticket[0]) }}">
+                    <select name="assigned_to" required>
+                        <option value="">Select Consultant</option>
+                        {% for consultant in consultants %}
+                        <option value="{{ consultant[0] }}" {% if consultant[0] == ticket[8] %}selected{% endif %}>{{ consultant[1] }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">Assign</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
 </body>
 </html>

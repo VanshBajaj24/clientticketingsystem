@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>My Tickets</title>
+</head>
+<body>
+    <h2>My Tickets</h2>
+    <a href="{{ url_for('raise_ticket') }}">Raise a New Ticket</a>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Ticket ID</th>
+                <th>Category</th>
+                <th>Priority</th>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ticket in tickets %}
+            <tr>
+                <td>{{ ticket[0] }}</td>
+                <td>{{ ticket[1] }}</td>
+                <td>{{ ticket[2] }}</td>
+                <td>{{ ticket[3] }}</td>
+                <td>{{ ticket[4] }}</td>
+                <td>{{ ticket[5] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
