@@ -7,7 +7,7 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
+app.config['MYSQL_PASSWORD'] = 'admin'
 app.config['MYSQL_DB'] = 'proj'
 
 mysql = MySQL(app)
@@ -18,23 +18,24 @@ def login():
     if request.method == 'POST':
         user_id = request.form['user_id']
         password = request.form['password']
-        cursor = mysql.connection.cursor()
-        #cursor.execute("SELECT * FROM users WHERE user_id = %s AND password = % s'", (user_id, password))
-        cursor.execute("SELECT * FROM user WHERE user_id = %s AND password_hash = %s", (user_id, password))
 
+        cursor = mysql.connection.cursor()
+        cursor.execute("SELECT * FROM Users WHERE user_id = %s", (user_id,))
         user = cursor.fetchone()
-        cursor.close()
-        if user:
-            flash("here")
+        
+        if user and check_password_hash(user[2], password):  # user[2] is the password_hash column
             session['user_id'] = user[0]
-            session['role'] = user[2]
-            flash('Login successful!','success')
-            return redirect(url_for('index'))
+            session['role'] = user[4]  # Assuming role is in the 5th column (index 4)
+            flash('Login successful!', 'success')
+            cursor.close()
+            return redirect(url_for('index'))  # Replace 'index' with your actual index route/function
         else:
-            flash('Invalid credentials!')
+            flash('Invalid credentials!', 'error')
+            cursor.close()
             return redirect(url_for('login'))
 
     return render_template('login.html')
+
 
 @app.route('/')
 def index():
@@ -53,12 +54,18 @@ def manage_tickets():
 def register():
     if request.method == 'POST':
         user_id = request.form['user_id']
-        password = generate_password_hash(request.form['password'])
+        username = request.form['username']
+        password = request.form['password']
+        hashed_password = generate_password_hash(password)
         role = request.form['role']
+        email = request.form['email']
+
         cursor = mysql.connection.cursor()
-        cursor.execute("INSERT INTO users (user_id, password, role) VALUES (%s, %s, %s)", (user_id, password, role))
+        cursor.execute("INSERT INTO Users (user_id, username, password_hash, email, role) VALUES (%s, %s, %s, %s, %s)",
+                       (user_id, username, hashed_password, email, role))
         mysql.connection.commit()
         cursor.close()
+
         flash('User registered successfully!', 'success')
         return redirect(url_for('login'))
 
