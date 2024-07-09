@@ -1,10 +1,17 @@
-from flask import Flask, request, jsonify, redirect, url_for, flash, session, send_file
+from flask import Flask, request, jsonify, redirect, url_for, flash, session, send_file,render_template
 from flask_mysqldb import MySQL
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import csv
 import os
-# Define role constants
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+import matplotlib
+matplotlib.use('Agg')
+import base64
+#Define role constants
 CLIENT_ROLE = 'client'
 MANAGER_ROLE = 'manager'
 CONSULTANT_ROLE = 'consultant'
@@ -225,7 +232,89 @@ def export_tickets():
             })
    
     return send_file(csv_file_path, as_attachment=True)
+@app.route('/generate_reports', methods=['GET'])
+@role_required('manager')  # Replace with your actual role check logic
+def generate_reports():
+    df = pd.read_csv('tickets.csv')
 
+    # Ensure 'priority' column has numeric values by mapping categories to numbers
+    priority_mapping = {'high': 3, 'med': 2, 'low': 1}
+    df['priority'] = df['priority'].map(priority_mapping)
+
+    # Calculate the status counts
+    status_counts = df['status_name'].value_counts()
+
+    # Calculate the average priority by category
+    average_priority_by_category = df.groupby('category_name')['priority'].mean()
+
+    # Calculate the count of tickets by assigned consultant
+    assigned_to_counts = df['assigned_to'].value_counts()
+
+    # Ensure 'created_at' column is in datetime format
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    tickets_over_time = df['created_at'].dt.date.value_counts().sort_index()
+
+    plots = []
+
+    # Plot Count of Tickets by Status
+    plt.figure(figsize=(10, 6))
+    status_counts.plot(kind='bar', color='skyblue')
+    plt.title('Count of Tickets by Status')
+    plt.xlabel('Status')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    # Plot Average Ticket Priority by Category
+    plt.figure(figsize=(10, 6))
+    average_priority_by_category.plot(kind='bar', color='green')
+    plt.title('Average Ticket Priority by Category')
+    plt.xlabel('Category')
+    plt.ylabel('Average Priority')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    # Bar chart of count of tickets by assigned consultant
+    plt.figure(figsize=(10, 6))
+    assigned_to_counts.plot(kind='bar', color='purple')
+    plt.title('Count of Tickets by Assigned Consultant')
+    plt.xlabel('Consultant')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    # Line chart of tickets over time
+    plt.figure(figsize=(10, 6))
+    tickets_over_time.plot(kind='line', color='orange', marker='o')
+    plt.title('Tickets Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.grid(True)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    return render_template('plots.html', plots=plots)
+
+                   
 @app.route('/consultant_tickets', methods=['GET'])
 @role_required(CONSULTANT_ROLE)
 def consultant_tickets():
