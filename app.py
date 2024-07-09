@@ -266,8 +266,9 @@ def manage_tickets():
 def assign_ticket(ticket_id):
     data = request.get_json()
     assigned_to = data['assigned_to']
+    status_assigned = 2 
     cursor = mysql.connection.cursor()
-    cursor.execute("UPDATE tickets SET assigned_to = %s WHERE ticket_id = %s", (assigned_to, ticket_id))
+    cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
     mysql.connection.commit()
     cursor.close()
     return jsonify({'message': 'Ticket assigned successfully!'}), 200
