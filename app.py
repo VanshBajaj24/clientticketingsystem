@@ -168,7 +168,7 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'admin'
+app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
 app.config['MYSQL_DB'] = 'proj'
 
 mysql = MySQL(app)
@@ -287,40 +287,58 @@ def assign_ticket(ticket_id):
     return jsonify({'message': 'Ticket assigned successfully!'}), 200
 
     
-
 @app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
-@role_required(CONSULTANT_ROLE)
 def update_ticket_status(ticket_id):
-    data = request.get_json()
-    new_status = data.get('new_status', '').strip().lower()
+    if 'role' not in session or 'user_id' not in session:
+        return jsonify({'message': 'Unauthorized access!'}), 403
 
-    # Check if the new status is valid for consultants to update
-    valid_statuses = ['verification', 'closed']
-    if new_status not in valid_statuses:
-        return jsonify({'message': f'Invalid status update for consultants! Valid statuses are: {", ".join(valid_statuses)}'}), 400
+    user_role = session['role']
+    user_id = session['user_id']
 
-    # Check if the logged-in user is the consultant assigned to this ticket
+    if user_role == CONSULTANT_ROLE:
+        new_status = 'Verification '
+    elif user_role == MANAGER_ROLE:
+        new_status = 'Closed'
+    else:
+        return jsonify({'message': 'Unauthorized access!'}), 403
+
+    # Check if the logged-in user is the consultant assigned to this ticket (if consultant)
+    if user_role == CONSULTANT_ROLE:
+        cursor = mysql.connection.cursor()
+        cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
+        ticket = cursor.fetchone()
+
+        if not ticket:
+            cursor.close()
+            return jsonify({'message': 'Ticket not found!'}), 404
+
+        assigned_to = ticket[0]
+
+        if user_id != assigned_to:
+            cursor.close()
+            return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
+
+        cursor.close()
+
+    # Retrieve the status_id from TicketStatuses table
     cursor = mysql.connection.cursor()
-    cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
-    ticket = cursor.fetchone()
+    cursor.execute("SELECT status_id FROM TicketStatuses WHERE LOWER(status_name) = %s", (new_status.lower(),))
+    status = cursor.fetchone()
     cursor.close()
 
-    if not ticket:
-        return jsonify({'message': 'Ticket not found!'}), 404
+    if not status:
+        return jsonify({'message': 'Invalid status name!'}), 400
 
-    assigned_to = ticket[0]
-
-    if session.get('user_id') != assigned_to:
-        return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
+    status_id = status[0]
 
     # Update the ticket status
     cursor = mysql.connection.cursor()
-    cursor.execute("UPDATE tickets SET status_id = (SELECT status_id FROM TicketStatuses WHERE status_name = %s) WHERE ticket_id = %s",
-                   (new_status.capitalize(), ticket_id))  # capitalize the first letter of status_name
+    cursor.execute("UPDATE tickets SET status_id = %s WHERE ticket_id = %s", (status_id, ticket_id))
     mysql.connection.commit()
     cursor.close()
 
-    return jsonify({'message': 'Ticket status updated successfully!'}), 200
+    return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
+
 
 
 @app.route('/consultant_tickets', methods=['GET'])
