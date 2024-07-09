@@ -168,7 +168,7 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
+app.config['MYSQL_PASSWORD'] = 'admin'
 app.config['MYSQL_DB'] = 'proj'
 
 mysql = MySQL(app)
@@ -261,6 +261,19 @@ def manage_tickets():
     cursor.close()
     return jsonify({'tickets': tickets, 'consultants': consultants}), 200
 
+@app.route('/manage_tickets/<status_name>', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def manage_tickets_by_status(status_name):
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to FROM tickets t "
+                   "JOIN Users u ON t.client_id = u.user_id "
+                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id "
+                   "WHERE ts.status_name = %s", (status_name,))
+    tickets = cursor.fetchall()
+    cursor.close()
+    return jsonify({'tickets': tickets}), 200
+
 @app.route('/assign_ticket/<int:ticket_id>', methods=['POST'])
 @role_required(MANAGER_ROLE)
 def assign_ticket(ticket_id):
@@ -272,6 +285,73 @@ def assign_ticket(ticket_id):
     mysql.connection.commit()
     cursor.close()
     return jsonify({'message': 'Ticket assigned successfully!'}), 200
+
+    
+
+@app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
+@role_required(CONSULTANT_ROLE)
+def update_ticket_status(ticket_id):
+    data = request.get_json()
+    new_status = data.get('new_status', '').strip().lower()
+
+    # Check if the new status is valid for consultants to update
+    valid_statuses = ['verification', 'closed']
+    if new_status not in valid_statuses:
+        return jsonify({'message': f'Invalid status update for consultants! Valid statuses are: {", ".join(valid_statuses)}'}), 400
+
+    # Check if the logged-in user is the consultant assigned to this ticket
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
+    ticket = cursor.fetchone()
+    cursor.close()
+
+    if not ticket:
+        return jsonify({'message': 'Ticket not found!'}), 404
+
+    assigned_to = ticket[0]
+
+    if session.get('user_id') != assigned_to:
+        return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
+
+    # Update the ticket status
+    cursor = mysql.connection.cursor()
+    cursor.execute("UPDATE tickets SET status_id = (SELECT status_id FROM TicketStatuses WHERE status_name = %s) WHERE ticket_id = %s",
+                   (new_status.capitalize(), ticket_id))  # capitalize the first letter of status_name
+    mysql.connection.commit()
+    cursor.close()
+
+    return jsonify({'message': 'Ticket status updated successfully!'}), 200
+
+
+@app.route('/consultant_tickets', methods=['GET'])
+@role_required(CONSULTANT_ROLE)
+def consultant_tickets():
+    consultant_id = session.get('user_id')
+
+    # Fetch tickets assigned to the consultant from the database
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT t.ticket_id, tc.category_name, t.priority, t.title, t.description, ts.status_name "
+                   "FROM tickets t "
+                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id "
+                   "WHERE t.assigned_to = %s", (consultant_id,))
+    tickets = cursor.fetchall()
+    cursor.close()
+
+    # Prepare JSON response
+    ticket_list = []
+    for ticket in tickets:
+        ticket_dict = {
+            'ticket_id': ticket[0],
+            'category_name': ticket[1],
+            'priority': ticket[2],
+            'title': ticket[3],
+            'description': ticket[4],
+            'status_name': ticket[5]
+        }
+        ticket_list.append(ticket_dict)
+
+    return jsonify({'tickets': ticket_list}), 200
 
 @app.route('/logout')
 def logout():
