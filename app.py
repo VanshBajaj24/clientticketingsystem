@@ -21,8 +21,8 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
-app.config['MYSQL_DB'] = 'proj'
+app.config['MYSQL_PASSWORD'] = 'Raks@743'
+app.config['MYSQL_DB'] = 'pythonproject'
 
 mysql = MySQL(app)
 
@@ -36,6 +36,13 @@ def role_required(role):
             return jsonify({'message': f'Unauthorized access for role "{role}".'}), 403
         return decorated_view
     return wrapper
+
+def log_ticket_action(ticket_id, user_id, action):
+    cursor = mysql.connection.cursor()
+    cursor.execute("INSERT INTO TicketLogs (ticket_id, user_id, action) VALUES (%s, %s, %s)",
+                   (ticket_id, user_id, action))
+    mysql.connection.commit()
+    cursor.close()
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -83,7 +90,9 @@ def raise_ticket():
     cursor = mysql.connection.cursor()
     cursor.execute("INSERT INTO tickets (client_id, category_id, priority, title, description, status_id) VALUES (%s, %s, %s, %s, %s, %s)",
                    (client_id, category_id, priority, title, description, status_id))
+    ticket_id = cursor.lastrowid
     mysql.connection.commit()
+    log_ticket_action(ticket_id, client_id, 'Ticket Raised')
     cursor.close()
     return jsonify({'message': 'Ticket raised successfully!'}), 201
 
@@ -136,10 +145,20 @@ def assign_ticket(ticket_id):
     cursor = mysql.connection.cursor()
     cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
     mysql.connection.commit()
+    log_ticket_action(ticket_id, session['user_id'], f'Ticket Assigned to {assigned_to}')
     cursor.close()
     return jsonify({'message': 'Ticket assigned successfully!'}), 200
 
-    
+@app.route('/ticket_logs', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def ticket_logs():
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT tl.log_id, tl.ticket_id, tl.user_id, u.username, tl.action, tl.timestamp FROM TicketLogs tl "
+                   "JOIN Users u ON tl.user_id = u.user_id")
+    logs = cursor.fetchall()
+    cursor.close()
+    return jsonify({'logs': logs}), 200
+
 @app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
 def update_ticket_status(ticket_id):
     if 'role' not in session or 'user_id' not in session:
