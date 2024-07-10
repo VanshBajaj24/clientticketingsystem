@@ -1,3 +1,9 @@
+from datetime import timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email_validator import validate_email, EmailNotValidError
+import smtplib
 from flask import Flask, request, jsonify, redirect, url_for, flash, session, send_file,render_template
 from flask_mysqldb import MySQL
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -21,10 +27,61 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Raks@743'
-app.config['MYSQL_DB'] = 'pythonproject'
-
+app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
+app.config['MYSQL_DB'] = 'proj'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['SESSION_PERMANENT'] = True
+ 
+SMTP_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
+SMTP_PORT = 587  # Replace with your SMTP server port
+SMTP_USER = 'bajajvansh01@gmail.com'  # Replace with your email
+SMTP_PASSWORD = 'sjdw jbjh eity rkvw'
+ 
 mysql = MySQL(app)
+ 
+def role_required(role):
+    def wrapper(fn):
+        @wraps(fn)
+        def decorated_view(*args, **kwargs):
+            if 'role' in session and session['role'] == role:
+                return fn(*args, **kwargs)
+            return jsonify({'message': f'Unauthorized access for role "{role}".'}), 403
+        return decorated_view
+    return wrapper
+ 
+def log_ticket_action(ticket_id, user_id, action):
+    cursor = mysql.connection.cursor()
+    cursor.execute("INSERT INTO TicketLogs (ticket_id, user_id, action) VALUES (%s, %s, %s)",
+                   (ticket_id, user_id, action))
+    mysql.connection.commit()
+    cursor.close()
+def send_email(subject, body, to_email):
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_USER
+    msg['To'] = to_email
+    msg['Subject'] = subject
+ 
+    msg.attach(MIMEText(body, 'plain'))
+ 
+    try:
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(SMTP_USER, to_email, text)
+        server.quit()
+        print(f"Email sent to {to_email}")
+    except Exception as e:
+        print(f"Failed to send email to {to_email}: {e}")
+ 
+# # Function to validate email
+# def is_valid_email(email):
+#     try:
+#         validate_email(email)
+#         return True
+#     except EmailNotValidError as e:
+#         print(str(e))
+#         return False
 
 def role_required(role):
     def wrapper(fn):
@@ -70,11 +127,7 @@ def is_valid_email(email):
         print(str(e))
         return False
 
-# Email Validation Function
-def is_valid_email(email):
-    if not email or parseaddr(email)[1] == '':
-        return False
-    return True
+
 
 # Password Validation Function
 def is_valid_password(password):
@@ -112,16 +165,14 @@ def login():
     user_id = data['user_id']
     password = data['password']
     
-    if not is_valid_email(user_id):
-        return jsonify({'message': 'Invalid credentials!'}), 401
     
     cursor = mysql.connection.cursor()
     cursor.execute("SELECT * FROM Users WHERE user_id = %s", (user_id,))
     user = cursor.fetchone()
     if user and check_password_hash(user[2], password):  # user[2] is the password_hash column
         session.permanent = True
-        session['user_id'] = user[0]
-        session['role'] = user[4]  # Assuming role is in the 5th column (index 4)
+        session['user_id'] = str(user[0])
+        session['role'] = str(user[4]) # Assuming role is in the 5th column (index 4)
         cursor.close()
         return jsonify({'message': 'Login successful!'}), 200
     else:
@@ -247,6 +298,63 @@ def ticket_logs():
     cursor.close()
     return jsonify({'logs': logs}), 200
 
+# @app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
+# def update_ticket_status(ticket_id):
+#     if 'role' not in session or 'user_id' not in session:
+#         return jsonify({'message': 'Unauthorized access!'}), 403
+
+#     user_role = session['role']
+#     user_id = session['user_id']
+
+#     if user_role == CONSULTANT_ROLE:
+#         new_status = 'Verification '
+#     elif user_role == MANAGER_ROLE:
+#         new_status = 'Closed'
+#     else:
+#         return jsonify({'message': 'Unauthorized access!'}), 403
+
+#     # Check if the logged-in user is the consultant assigned to this ticket (if consultant)
+#     if user_role == CONSULTANT_ROLE:
+#         cursor = mysql.connection.cursor()
+#         cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
+#         ticket = cursor.fetchone()
+
+#         if not ticket:
+#             cursor.close()
+#             return jsonify({'message': 'Ticket not found!'}), 404
+
+#         assigned_to = ticket[0]
+
+#         if user_id != assigned_to:
+#             cursor.close()
+#             return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
+
+#         cursor.close()
+
+#     cursor = mysql.connection.cursor()
+#     cursor.execute("SELECT status_id FROM TicketStatuses WHERE LOWER(status_name) = %s", (new_status.lower(),))
+#     status = cursor.fetchone()
+#     cursor.close()
+
+#     if not status:
+#         return jsonify({'message': 'Invalid status name!'}), 400
+
+#     status_id = status[0]
+#     cursor = mysql.connection.cursor()
+#     cursor.execute("UPDATE tickets SET status_id = %s WHERE ticket_id = %s", (status_id, ticket_id))
+#     mysql.connection.commit()
+    
+#     cursor.execute("SELECT client_id FROM tickets WHERE ticket_id = %s", (ticket_id,))
+#     client_id = cursor.fetchone()[0]
+    
+#     cursor.execute("SELECT email FROM Users WHERE user_id = %s", (client_id,))
+#     email = cursor.fetchone()[0]
+#     cursor.close()
+    
+#     if new_status == 'Closed' and is_valid_email(email):
+#         send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
+
+#     return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
 @app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
 def update_ticket_status(ticket_id):
     if 'role' not in session or 'user_id' not in session:
@@ -274,10 +382,11 @@ def update_ticket_status(ticket_id):
 
         assigned_to = ticket[0]
 
-        if user_id != assigned_to:
-            cursor.close()
-            return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
-
+        # if user_id != assigned_to:
+        #     cursor.close()
+        #     app.logger.error(f'User {user_id} is not authorized to update ticket {ticket_id}. Assigned to: {assigned_to}')
+        #     return jsonify({'message': 'You are not authorized to update this ticket status!'}), 403
+           
         cursor.close()
 
     cursor = mysql.connection.cursor()
@@ -304,6 +413,7 @@ def update_ticket_status(ticket_id):
         send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
 
     return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
+
 
 @app.route('/export_tickets', methods=['GET'])
 @role_required(MANAGER_ROLE)
@@ -518,4 +628,3 @@ def logout():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
