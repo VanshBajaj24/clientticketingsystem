@@ -11,7 +11,12 @@ import io
 import matplotlib
 matplotlib.use('Agg')
 import base64
-#Define role constants
+from datetime import timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email_validator import validate_email, EmailNotValidError
+
 CLIENT_ROLE = 'client'
 MANAGER_ROLE = 'manager'
 CONSULTANT_ROLE = 'consultant'
@@ -21,12 +26,18 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Raks@743'
-app.config['MYSQL_DB'] = 'pythonproject'
+app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
+app.config['MYSQL_DB'] = 'proj'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['SESSION_PERMANENT'] = True
+
+SMTP_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
+SMTP_PORT = 587  # Replace with your SMTP server port
+SMTP_USER = 'bajajvansh01@gmail.com'  # Replace with your email
+SMTP_PASSWORD = 'sjdw jbjh eity rkvw'
 
 mysql = MySQL(app)
 
-# Decorator to check role
 def role_required(role):
     def wrapper(fn):
         @wraps(fn)
@@ -43,6 +54,33 @@ def log_ticket_action(ticket_id, user_id, action):
                    (ticket_id, user_id, action))
     mysql.connection.commit()
     cursor.close()
+def send_email(subject, body, to_email):
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_USER
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(SMTP_USER, to_email, text)
+        server.quit()
+        print(f"Email sent to {to_email}")
+    except Exception as e:
+        print(f"Failed to send email to {to_email}: {e}")
+
+# Function to validate email
+def is_valid_email(email):
+    try:
+        validate_email(email)
+        return True
+    except EmailNotValidError as e:
+        print(str(e))
+        return False
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -53,6 +91,7 @@ def login():
     cursor.execute("SELECT * FROM Users WHERE user_id = %s", (user_id,))
     user = cursor.fetchone()
     if user and check_password_hash(user[2], password):  # user[2] is the password_hash column
+        session.permanent = True
         session['user_id'] = user[0]
         session['role'] = user[4]  # Assuming role is in the 5th column (index 4)
         cursor.close()
@@ -93,6 +132,12 @@ def raise_ticket():
     ticket_id = cursor.lastrowid
     mysql.connection.commit()
     log_ticket_action(ticket_id, client_id, 'Ticket Raised')
+    cursor.execute("SELECT email FROM Users WHERE user_id = %s", (client_id,))
+    email = cursor.fetchone()[0]
+    cursor.close()
+    
+    if is_valid_email(email):
+        send_email("Ticket Raised Successfully", f"Your ticket with ID {ticket_id} has been raised successfully.", email)
     cursor.close()
     return jsonify({'message': 'Ticket raised successfully!'}), 201
 
@@ -192,7 +237,6 @@ def update_ticket_status(ticket_id):
 
         cursor.close()
 
-    # Retrieve the status_id from TicketStatuses table
     cursor = mysql.connection.cursor()
     cursor.execute("SELECT status_id FROM TicketStatuses WHERE LOWER(status_name) = %s", (new_status.lower(),))
     status = cursor.fetchone()
@@ -202,12 +246,19 @@ def update_ticket_status(ticket_id):
         return jsonify({'message': 'Invalid status name!'}), 400
 
     status_id = status[0]
-
-    # Update the ticket status
     cursor = mysql.connection.cursor()
     cursor.execute("UPDATE tickets SET status_id = %s WHERE ticket_id = %s", (status_id, ticket_id))
     mysql.connection.commit()
+    
+    cursor.execute("SELECT client_id FROM tickets WHERE ticket_id = %s", (ticket_id,))
+    client_id = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT email FROM Users WHERE user_id = %s", (client_id,))
+    email = cursor.fetchone()[0]
     cursor.close()
+    
+    if new_status == 'Closed' and is_valid_email(email):
+        send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
 
     return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
 
@@ -252,74 +303,92 @@ def export_tickets():
    
     return send_file(csv_file_path, as_attachment=True)
 @app.route('/generate_reports', methods=['GET'])
-@role_required('manager')  # Replace with your actual role check logic
+@role_required(MANAGER_ROLE)
 def generate_reports():
+    query = "SELECT role, COUNT(*) as count FROM Users GROUP BY role"
+    user_roles_counts_df = pd.read_sql(query, mysql.connection, index_col='role')
+ 
+    # Read tickets data from CSV
     df = pd.read_csv('tickets.csv')
-
+ 
     # Ensure 'priority' column has numeric values by mapping categories to numbers
-    priority_mapping = {'high': 3, 'med': 2, 'low': 1}
+    priority_mapping = {'High': 3, 'Medium': 2, 'Low': 1}
     df['priority'] = df['priority'].map(priority_mapping)
-
+ 
     # Calculate the status counts
     status_counts = df['status_name'].value_counts()
-
+ 
     # Calculate the average priority by category
     average_priority_by_category = df.groupby('category_name')['priority'].mean()
-
+ 
     # Calculate the count of tickets by assigned consultant
     assigned_to_counts = df['assigned_to'].value_counts()
-
+ 
     # Ensure 'created_at' column is in datetime format
     df['created_at'] = pd.to_datetime(df['created_at'])
     tickets_over_time = df['created_at'].dt.date.value_counts().sort_index()
-
+ 
+    # Filter closed tickets and ensure 'updated_at' column is in datetime format
+    df['updated_at'] = pd.to_datetime(df['updated_at'])
+    closed_tickets = df[df['status_name'] == 'Closed']
+    closed_tickets_over_time = closed_tickets['updated_at'].dt.date.value_counts().sort_index()
+ 
     plots = []
-
+ 
     # Plot Count of Tickets by Status
     plt.figure(figsize=(10, 6))
-    status_counts.plot(kind='bar', color='skyblue')
+    ax = status_counts.plot(kind='bar', color='skyblue')
     plt.title('Count of Tickets by Status')
     plt.xlabel('Status')
     plt.ylabel('Count')
     plt.xticks(rotation=45)
+    # Annotate each bar with the count
+    for i in ax.containers:
+        ax.bar_label(i,)
     plt.tight_layout()
     img = io.BytesIO()
     plt.savefig(img, format='png')
     img.seek(0)
     plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
     plt.close()
-
+ 
     # Plot Average Ticket Priority by Category
     plt.figure(figsize=(10, 6))
-    average_priority_by_category.plot(kind='bar', color='green')
+    ax = average_priority_by_category.plot(kind='bar', color='green')
     plt.title('Average Ticket Priority by Category')
     plt.xlabel('Category')
     plt.ylabel('Average Priority')
     plt.xticks(rotation=45)
+    # Annotate each bar with the average priority
+    for i in ax.containers:
+        ax.bar_label(i,)
     plt.tight_layout()
     img = io.BytesIO()
     plt.savefig(img, format='png')
     img.seek(0)
     plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
     plt.close()
-
+ 
     # Bar chart of count of tickets by assigned consultant
     plt.figure(figsize=(10, 6))
-    assigned_to_counts.plot(kind='bar', color='purple')
+    ax = assigned_to_counts.plot(kind='bar', color='purple')
     plt.title('Count of Tickets by Assigned Consultant')
     plt.xlabel('Consultant')
     plt.ylabel('Count')
     plt.xticks(rotation=45)
+    # Annotate each bar with the count
+    for i in ax.containers:
+        ax.bar_label(i,)
     plt.tight_layout()
     img = io.BytesIO()
     plt.savefig(img, format='png')
     img.seek(0)
     plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
     plt.close()
-
+ 
     # Line chart of tickets over time
     plt.figure(figsize=(10, 6))
-    tickets_over_time.plot(kind='line', color='orange', marker='o')
+    ax = tickets_over_time.plot(kind='line', color='orange', marker='o')
     plt.title('Tickets Over Time')
     plt.xlabel('Date')
     plt.ylabel('Count')
@@ -330,7 +399,40 @@ def generate_reports():
     img.seek(0)
     plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
     plt.close()
-
+ 
+    # Pie chart of user roles
+    plt.figure(figsize=(10, 6))
+    user_roles_counts_df['count'].plot(kind='pie', autopct='%1.1f%%', colors=['red', 'blue', 'yellow'], startangle=140)
+    plt.title('User Roles Distribution')
+    plt.ylabel('')  # Hide the y-label to make the chart look cleaner
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    # Bar chart of closed tickets over time with at least 10 dates and y-axis limit of at least 10
+    if len(closed_tickets_over_time) < 10:
+        min_date = closed_tickets_over_time.index.min()
+        max_date = closed_tickets_over_time.index.max()
+        all_dates = pd.date_range(start=min_date, end=max_date + pd.Timedelta(days=10 - len(closed_tickets_over_time)))
+        closed_tickets_over_time = closed_tickets_over_time.reindex(all_dates, fill_value=0)
+ 
+    plt.figure(figsize=(10, 6))
+    ax = closed_tickets_over_time.plot(kind='bar', color='red', width=0.5)
+    plt.title('Closed Tickets Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.ylim(0, max(10, closed_tickets_over_time.max() + 1))
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
     return render_template('plots.html', plots=plots)
 
                    
