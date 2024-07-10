@@ -28,8 +28,8 @@ app.secret_key = 'asudsb'
 
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = 'Raks@743'
-app.config['MYSQL_DB'] = 'pythonproject'
+app.config['MYSQL_PASSWORD'] = 'Sqlserver@123'
+app.config['MYSQL_DB'] = 'proj'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['SESSION_PERMANENT'] = True
  
@@ -118,8 +118,6 @@ def is_valid_email(email):
     except EmailNotValidError as e:
         print(str(e))
         return False
-
-
 
 # Password Validation Function
 class PasswordValidationException(Exception):
@@ -255,14 +253,28 @@ def view_tickets():
 @role_required(MANAGER_ROLE)
 def manage_tickets():
     cursor = mysql.connection.cursor()
-    cursor.execute("SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to FROM tickets t "
-                   "JOIN Users u ON t.client_id = u.user_id "
-                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
-                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id")
+    
+    # Get ticket details
+    cursor.execute(
+        "SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to "
+        "FROM tickets t "
+        "JOIN Users u ON t.client_id = u.user_id "
+        "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+        "JOIN TicketStatuses ts ON t.status_id = ts.status_id"
+    )
     tickets = cursor.fetchall()
-    cursor.execute("SELECT user_id, username FROM Users WHERE role = %s", (CONSULTANT_ROLE,))
+    cursor.execute(
+        "SELECT u.user_id, u.username, COUNT(t.ticket_id) as assigned_ticket_count "
+        "FROM Users u "
+        "LEFT JOIN tickets t ON u.user_id = t.assigned_to AND t.status_id = %s "
+        "WHERE u.role = %s "
+        "GROUP BY u.user_id, u.username",
+        (2, CONSULTANT_ROLE)
+    )
     consultants = cursor.fetchall()
+    
     cursor.close()
+    
     return jsonify({'tickets': tickets, 'consultants': consultants}), 200
 
 @app.route('/manage_tickets/<status_name>', methods=['GET'])
@@ -283,13 +295,24 @@ def manage_tickets_by_status(status_name):
 def assign_ticket(ticket_id):
     data = request.get_json()
     assigned_to = data['assigned_to']
-    status_assigned = 2 
+    
     cursor = mysql.connection.cursor()
-    cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
-    mysql.connection.commit()
-    log_ticket_action(ticket_id, session['user_id'], f'Ticket Assigned to {assigned_to}')
-    cursor.close()
-    return jsonify({'message': 'Ticket assigned successfully!'}), 200
+    
+    # Check if the assigned_to user is a consultant
+    cursor.execute("SELECT role FROM users WHERE user_id = %s", (assigned_to,))
+    result = cursor.fetchone()
+    
+    if result and result[0] == 'consultant':
+        status_assigned = 2
+        cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
+        mysql.connection.commit()
+        log_ticket_action(ticket_id, session['user_id'], f'Ticket Assigned to {assigned_to}')
+        cursor.close()
+        return jsonify({'message': 'Ticket assigned successfully!'}), 200
+    else:
+        cursor.close()
+        return jsonify({'error': 'Ticket can only be assigned to a consultant!'}), 403
+
 
 @app.route('/ticket_logs', methods=['GET'])
 @role_required(MANAGER_ROLE)
