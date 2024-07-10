@@ -11,6 +11,8 @@ import io
 import matplotlib
 matplotlib.use('Agg')
 import base64
+import re
+from email.utils import parseaddr
 #Define role constants
 CLIENT_ROLE = 'client'
 MANAGER_ROLE = 'manager'
@@ -44,11 +46,51 @@ def log_ticket_action(ticket_id, user_id, action):
     mysql.connection.commit()
     cursor.close()
 
+# Email Validation Function
+def is_valid_email(email):
+    if not email or parseaddr(email)[1] == '':
+        return False
+    return True
+
+# Password Validation Function
+def is_valid_password(password):
+    if len(password) < 8:
+        return False
+    return True
+
+# Routes
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    user_id = data['user_id']
+    username = data['username']
+    password = data['password']
+    hashed_password = generate_password_hash(password)
+    role = data['role']
+    email = data['email']
+    
+    if not is_valid_email(email):
+        return jsonify({'message': 'Invalid email format!'}), 400
+    if not is_valid_password(password):
+        return jsonify({'message': 'Password must be at least 8 characters long!'}), 400
+    
+    cursor = mysql.connection.cursor()
+    cursor.execute("INSERT INTO Users (user_id, username, password_hash, email, role) VALUES (%s, %s, %s, %s, %s)",
+                   (user_id, username, hashed_password, email, role))
+    mysql.connection.commit()
+    cursor.close()
+    return jsonify({'message': 'User registered successfully!'}), 201
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     user_id = data['user_id']
     password = data['password']
+    
+    if not is_valid_email(user_id):
+        return jsonify({'message': 'Invalid credentials!'}), 401
+    
     cursor = mysql.connection.cursor()
     cursor.execute("SELECT * FROM Users WHERE user_id = %s", (user_id,))
     user = cursor.fetchone()
@@ -61,21 +103,36 @@ def login():
         cursor.close()
         return jsonify({'message': 'Invalid credentials!'}), 401
 
-@app.route('/register', methods=['POST'])
-def register():
+
+@app.route('/change-password', methods=['POST'])
+def change_password():
     data = request.get_json()
-    user_id = data['user_id']
-    username = data['username']
-    password = data['password']
-    hashed_password = generate_password_hash(password)
-    role = data['role']
-    email = data['email']
+    user_id = data.get('user_id')
+    email = data.get('email')
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    
+    if not user_id or not email or not old_password or not new_password:
+        return jsonify({'message': 'Missing user_id, email, old_password, or new_password in request!'}), 400
+    
     cursor = mysql.connection.cursor()
-    cursor.execute("INSERT INTO Users (user_id, username, password_hash, email, role) VALUES (%s, %s, %s, %s, %s)",
-                   (user_id, username, hashed_password, email, role))
-    mysql.connection.commit()
-    cursor.close()
-    return jsonify({'message': 'User registered successfully!'}), 201
+    cursor.execute("SELECT * FROM Users WHERE user_id = %s AND email = %s", (user_id, email))
+    user = cursor.fetchone()
+    
+    if user and check_password_hash(user[2], old_password):  # user[2] is the password_hash column
+        if not is_valid_password(new_password):
+            cursor.close()
+            return jsonify({'message': 'Invalid new password format! Password must be at least 8 characters long.'}), 400
+        
+        hashed_password = generate_password_hash(new_password)
+        cursor.execute("UPDATE Users SET password_hash = %s WHERE user_id = %s", (hashed_password, user_id))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Password updated successfully!'}), 200
+    else:
+        cursor.close()
+        return jsonify({'message': 'Invalid user_id, email, or old password!'}), 401
+
 
 @app.route('/raise_ticket', methods=['POST'])
 @role_required(CLIENT_ROLE)
