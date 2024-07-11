@@ -104,7 +104,7 @@ def is_valid_password(password):
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    user_id = data['user_id']
+    # user_id = data['user_id']
     username = data['username']
     password = data['password']
     hashed_password = generate_password_hash(password)
@@ -117,8 +117,8 @@ def register():
         return jsonify({'message': 'Invalid credentials!'}), 401
     
     cursor = mysql.connection.cursor()
-    cursor.execute("INSERT INTO Users (user_id, username, password_hash, email, role) VALUES (%s, %s, %s, %s, %s)",
-                   (user_id, username, hashed_password, email, role))
+    cursor.execute("INSERT INTO Users ( username, password_hash, email, role) VALUES ( %s, %s, %s, %s)",
+                   ( username, hashed_password, email, role))
     mysql.connection.commit()
     cursor.close()
     return jsonify({'message': 'User registered successfully!'}), 201
@@ -142,7 +142,34 @@ def login():
     else:
         cursor.close()
         return jsonify({'message': 'Invalid credentials!'}), 401
-
+    
+@app.route('/forgot_password', methods=['POST'])
+def forgot_password():
+    data = request.get_json()
+    user_id = data.get('user_id')
+    email = data.get('email')
+    new_password = data.get('new_password')
+    
+    if not user_id or not email or not new_password:
+        return jsonify({'message': 'Missing user_id, email, or new_password in request!'}), 400
+    
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT * FROM Users WHERE user_id = %s AND email = %s", (user_id, email))
+    user = cursor.fetchone()
+    
+    if user : 
+        if not is_valid_password(new_password):
+            cursor.close()
+            return jsonify({'message': 'Invalid new password format! Password must be at least 8 characters long.'}), 400
+        
+        hashed_password = generate_password_hash(new_password)
+        cursor.execute("UPDATE Users SET password_hash = %s WHERE user_id = %s", (hashed_password, user_id))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Password updated successfully!'}), 200
+    else:
+        cursor.close()
+        return jsonify({'message': 'Invalid user_id, email, or old password!'}), 401
 
 @app.route('/change_password', methods=['POST'])
 def change_password():
@@ -257,7 +284,7 @@ def manage_tickets():
         "FROM tickets t "
         "JOIN Users u ON t.client_id = u.user_id "
         "JOIN TicketCategories tc ON t.category_id = tc.category_id "
-        "JOIN TicketStatuses ts ON t.status_id = ts.status_id"
+        "JOIN TicketStatuses ts ON t.status_id = ts.status_id ORDER BY t.ticket_id"
     )
     tickets = cursor.fetchall()
     cursor.execute(
@@ -439,7 +466,7 @@ def generate_reports():
     closed_tickets = df[df['status_name'] == 'Closed']
     closed_tickets_over_time = closed_tickets['updated_at'].dt.date.value_counts().sort_index()
 
-    df_last_6_months = df[df['created_at'] >= pd.Timestamp.now() - pd.DateOffset(months=6)]
+    df_last_6_months = df[df['created_at'] >= (pd.Timestamp.now() - pd.DateOffset(months=6))]
     tickets_by_client = df_last_6_months['client_id'].value_counts(normalize=True) * 100
  
     plots = []
