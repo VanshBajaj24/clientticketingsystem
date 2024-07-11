@@ -18,7 +18,7 @@ import io
 import matplotlib
 matplotlib.use('Agg')
 import base64
-#Define role constants
+
 CLIENT_ROLE = 'client'
 MANAGER_ROLE = 'manager'
 CONSULTANT_ROLE = 'consultant'
@@ -133,10 +133,10 @@ def login():
     cursor = mysql.connection.cursor()
     cursor.execute("SELECT * FROM Users WHERE user_id = %s", (user_id,))
     user = cursor.fetchone()
-    if user and check_password_hash(user[2], password):  # user[2] is the password_hash column
+    if user and check_password_hash(user[2], password):  
         session.permanent = True
         session['user_id'] = str(user[0])
-        session['role'] = str(user[4]) # Assuming role is in the 5th column (index 4)
+        session['role'] = str(user[4]) 
         cursor.close()
         return jsonify({'message': 'Login successful!'}), 200
     else:
@@ -247,6 +247,132 @@ def recent_first():
     return jsonify(ticket_list)
 
 
+@app.route('/manage_tickets', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def manage_tickets():
+    cursor = mysql.connection.cursor()
+    
+    cursor.execute(
+        "SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to "
+        "FROM tickets t "
+        "JOIN Users u ON t.client_id = u.user_id "
+        "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+        "JOIN TicketStatuses ts ON t.status_id = ts.status_id"
+    )
+    tickets = cursor.fetchall()
+    cursor.execute(
+        "SELECT u.user_id, u.username, COUNT(t.ticket_id) as assigned_ticket_count "
+        "FROM Users u "
+        "LEFT JOIN tickets t ON u.user_id = t.assigned_to AND t.status_id = %s "
+        "WHERE u.role = %s "
+        "GROUP BY u.user_id, u.username",
+        (2, CONSULTANT_ROLE)
+    )
+    consultants = cursor.fetchall()
+    
+    cursor.close()
+    
+    return jsonify({'tickets': tickets, 'consultants': consultants}), 200
+
+@app.route('/manage_tickets/<status_name>', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def manage_tickets_by_status(status_name):
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to FROM tickets t "
+                   "JOIN Users u ON t.client_id = u.user_id "
+                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id "
+                   "WHERE ts.status_name = %s", (status_name,))
+    tickets = cursor.fetchall()
+    cursor.close()
+    return jsonify({'tickets': tickets}), 200
+
+@app.route('/assign_ticket/<int:ticket_id>', methods=['POST'])
+@role_required(MANAGER_ROLE)
+def assign_ticket(ticket_id):
+    data = request.get_json()
+    assigned_to = data['assigned_to']
+    
+    cursor = mysql.connection.cursor()
+    
+    cursor.execute("SELECT role FROM users WHERE user_id = %s", (assigned_to,))
+    result = cursor.fetchone()
+    
+    if result and result[0] == 'consultant':
+        status_assigned = 2
+        cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
+        mysql.connection.commit()
+        log_ticket_action(ticket_id, session['user_id'], f'Ticket Assigned to {assigned_to}')
+        cursor.close()
+        return jsonify({'message': 'Ticket assigned successfully!'}), 200
+    else:
+        cursor.close()
+        return jsonify({'error': 'Ticket can only be assigned to a consultant!'}), 403
+
+
+@app.route('/ticket_logs', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def ticket_logs():
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT tl.log_id, tl.ticket_id, tl.user_id, u.username, tl.action, tl.timestamp FROM TicketLogs tl "
+                   "JOIN Users u ON tl.user_id = u.user_id")
+    logs = cursor.fetchall()
+    cursor.close()
+    return jsonify({'logs': logs}), 200
+
+@app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
+def update_ticket_status(ticket_id):
+    if 'role' not in session or 'user_id' not in session:
+        return jsonify({'message': 'Unauthorized access!'}), 403
+
+    user_role = session['role']
+    user_id = session['user_id']
+
+    if user_role == CONSULTANT_ROLE:
+        new_status = 'Verification '
+    elif user_role == MANAGER_ROLE:
+        new_status = 'Closed'
+    else:
+        return jsonify({'message': 'Unauthorized access!'}), 403
+
+    if user_role == CONSULTANT_ROLE:
+        cursor = mysql.connection.cursor()
+        cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
+        ticket = cursor.fetchone()
+
+        if not ticket:
+            cursor.close()
+            return jsonify({'message': 'Ticket not found!'}), 404
+
+        assigned_to = ticket[0]
+           
+        cursor.close()
+
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT status_id FROM TicketStatuses WHERE LOWER(status_name) = %s", (new_status.lower(),))
+    status = cursor.fetchone()
+    cursor.close()
+
+    if not status:
+        return jsonify({'message': 'Invalid status name!'}), 400
+
+    status_id = status[0]
+    cursor = mysql.connection.cursor()
+    cursor.execute("UPDATE tickets SET status_id = %s WHERE ticket_id = %s", (status_id, ticket_id))
+    mysql.connection.commit()
+    
+    cursor.execute("SELECT client_id FROM tickets WHERE ticket_id = %s", (ticket_id,))
+    client_id = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT email FROM Users WHERE user_id = %s", (client_id,))
+    email = cursor.fetchone()[0]
+    cursor.close()
+    # Log ticket action
+    log_ticket_action(ticket_id, user_id, f'Ticket status updated to {new_status}')
+    if new_status == 'Closed' and is_valid_email(email):
+        send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
+
+    return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
 @app.route('/export_tickets', methods=['GET'])
 @role_required(MANAGER_ROLE)
 def export_tickets():
@@ -431,134 +557,7 @@ def generate_reports():
     plt.close()
  
     return render_template('plots.html', plots=plots)
-
-
-@app.route('/manage_tickets', methods=['GET'])
-@role_required(MANAGER_ROLE)
-def manage_tickets():
-    cursor = mysql.connection.cursor()
-    
-    cursor.execute(
-        "SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to "
-        "FROM tickets t "
-        "JOIN Users u ON t.client_id = u.user_id "
-        "JOIN TicketCategories tc ON t.category_id = tc.category_id "
-        "JOIN TicketStatuses ts ON t.status_id = ts.status_id"
-    )
-    tickets = cursor.fetchall()
-    cursor.execute(
-        "SELECT u.user_id, u.username, COUNT(t.ticket_id) as assigned_ticket_count "
-        "FROM Users u "
-        "LEFT JOIN tickets t ON u.user_id = t.assigned_to AND t.status_id = %s "
-        "WHERE u.role = %s "
-        "GROUP BY u.user_id, u.username",
-        (2, CONSULTANT_ROLE)
-    )
-    consultants = cursor.fetchall()
-    
-    cursor.close()
-    
-    return jsonify({'tickets': tickets, 'consultants': consultants}), 200
-
-@app.route('/manage_tickets/<status_name>', methods=['GET'])
-@role_required(MANAGER_ROLE)
-def manage_tickets_by_status(status_name):
-    cursor = mysql.connection.cursor()
-    cursor.execute("SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to FROM tickets t "
-                   "JOIN Users u ON t.client_id = u.user_id "
-                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
-                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id "
-                   "WHERE ts.status_name = %s", (status_name,))
-    tickets = cursor.fetchall()
-    cursor.close()
-    return jsonify({'tickets': tickets}), 200
-
-@app.route('/assign_ticket/<int:ticket_id>', methods=['POST'])
-@role_required(MANAGER_ROLE)
-def assign_ticket(ticket_id):
-    data = request.get_json()
-    assigned_to = data['assigned_to']
-    
-    cursor = mysql.connection.cursor()
-    
-    cursor.execute("SELECT role FROM users WHERE user_id = %s", (assigned_to,))
-    result = cursor.fetchone()
-    
-    if result and result[0] == 'consultant':
-        status_assigned = 2
-        cursor.execute("UPDATE tickets SET assigned_to = %s, status_id = %s WHERE ticket_id = %s", (assigned_to, status_assigned, ticket_id))
-        mysql.connection.commit()
-        log_ticket_action(ticket_id, session['user_id'], f'Ticket Assigned to {assigned_to}')
-        cursor.close()
-        return jsonify({'message': 'Ticket assigned successfully!'}), 200
-    else:
-        cursor.close()
-        return jsonify({'error': 'Ticket can only be assigned to a consultant!'}), 403
-
-
-@app.route('/ticket_logs', methods=['GET'])
-@role_required(MANAGER_ROLE)
-def ticket_logs():
-    cursor = mysql.connection.cursor()
-    cursor.execute("SELECT tl.log_id, tl.ticket_id, tl.user_id, u.username, tl.action, tl.timestamp FROM TicketLogs tl "
-                   "JOIN Users u ON tl.user_id = u.user_id")
-    logs = cursor.fetchall()
-    cursor.close()
-    return jsonify({'logs': logs}), 200
-
-@app.route('/update_ticket_status/<int:ticket_id>', methods=['POST'])
-def update_ticket_status(ticket_id):
-    if 'role' not in session or 'user_id' not in session:
-        return jsonify({'message': 'Unauthorized access!'}), 403
-
-    user_role = session['role']
-    user_id = session['user_id']
-
-    if user_role == CONSULTANT_ROLE:
-        new_status = 'Verification '
-    elif user_role == MANAGER_ROLE:
-        new_status = 'Closed'
-    else:
-        return jsonify({'message': 'Unauthorized access!'}), 403
-
-    if user_role == CONSULTANT_ROLE:
-        cursor = mysql.connection.cursor()
-        cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
-        ticket = cursor.fetchone()
-
-        if not ticket:
-            cursor.close()
-            return jsonify({'message': 'Ticket not found!'}), 404
-
-        assigned_to = ticket[0]
-           
-        cursor.close()
-
-    cursor = mysql.connection.cursor()
-    cursor.execute("SELECT status_id FROM TicketStatuses WHERE LOWER(status_name) = %s", (new_status.lower(),))
-    status = cursor.fetchone()
-    cursor.close()
-
-    if not status:
-        return jsonify({'message': 'Invalid status name!'}), 400
-
-    status_id = status[0]
-    cursor = mysql.connection.cursor()
-    cursor.execute("UPDATE tickets SET status_id = %s WHERE ticket_id = %s", (status_id, ticket_id))
-    mysql.connection.commit()
-    
-    cursor.execute("SELECT client_id FROM tickets WHERE ticket_id = %s", (ticket_id,))
-    client_id = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT email FROM Users WHERE user_id = %s", (client_id,))
-    email = cursor.fetchone()[0]
-    cursor.close()
-    
-    if new_status == 'Closed' and is_valid_email(email):
-        send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
-
-    return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
-          
+        
 @app.route('/consultant_tickets', methods=['GET'])
 @role_required(CONSULTANT_ROLE)
 def consultant_tickets():
