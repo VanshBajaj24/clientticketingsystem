@@ -4,8 +4,9 @@ ticket_id,client_id,username,category_name,priority,title,description,status_nam
 3,3,Prithak,Technical Support,High,new update,urgnt,Closed,5,Arjun,2024-07-08 17:36:24,2024-07-10 12:20:15
 4,3,Prithak,Sales,Low,test,test,Assigned,4,RAKSHIT,2024-07-09 10:24:55,2024-07-09 12:56:09
 5,3,Prithak,Technical Support,Low,check it,pls look into it,Open,,,2024-07-10 10:00:00,2024-07-10 10:00:00
-6,15,anuj,Account Management,High,test,test the module,Open,,,2024-07-10 11:12:15,2024-07-10 11:12:15
+6,15,anuj,Account Management,High,test,test the module,Assigned,123,ram,2024-07-10 11:12:15,2024-07-10 16:58:27
 7,15,anuj,Account Management,High,test,test the module,Closed,123,ram,2024-07-10 11:12:53,2024-07-10 12:12:43
 8,15,anuj,Account Management,High,test,test the module,Open,,,2024-07-10 11:13:44,2024-07-10 11:13:44
 9,3,Prithak,Sales,Low,issue,issue,Closed,123,ram,2024-07-10 12:56:03,2024-07-10 13:11:25
 10,3,Prithak,Feature Request,Low,error,solve the isssue,Closed,5,Arjun,2024-07-10 13:13:43,2024-07-10 13:23:30
+11,15,anuj,Sales,Low,error in change.py,error handling issue,Assigned,5,Arjun,2024-07-10 22:12:29,2024-07-10 22:15:30

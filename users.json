@@ -1,0 +1,145 @@
+[
+    {
+        "user_id": "99",
+        "username": "Raman",
+        "password": "Password@1",
+        "role": "client",
+        "email": "user1@gmail.com"
+    },
+    {
+        "user_id": "100",
+        "username": "shyam",
+        "password": "Password@2",
+        "role": "consultant",
+        "email": "user2@gmail.com"
+    },
+    
+    {
+        "user_id": "102",
+        "username": "user4",
+        "password": "Password@4",
+        "role": "consultant",
+        "email": "user4@gmail.com"
+    },
+    {
+        "user_id": "103",
+        "username": "user5",
+        "password": "Password@5",
+        "role": "client",
+        "email": "user5@gmail.com"
+    },
+    
+    {
+        "user_id": "105",
+        "username": "user7",
+        "password": "Password@7",
+        "role": "consultant",
+        "email": "user7@gmail.com"
+    },
+    {
+        "user_id": "106",
+        "username": "user8",
+        "password": "Password@8",
+        "role": "client",
+        "email": "user8@gmail.com"
+    },
+    {
+        "user_id": "108",
+        "username": "user10",
+        "password": "Password@10",
+        "role": "consultant",
+        "email": "user10@gmail.com"
+    },
+    {
+        "user_id": "109",
+        "username": "user11",
+        "password": "Password@11",
+        "role": "client",
+        "email": "user11@gmail.com"
+    },
+    {
+        "user_id": "110",
+        "username": "user12",
+        "password": "Password@12",
+        "role": "consultant",
+        "email": "user12@gmail.com"
+    },
+    {
+        "user_id": "111",
+        "username": "user13",
+        "password": "Password@13",
+        "role": "manager",
+        "email": "user13@gmail.com"
+    },
+    {
+        "user_id": "112",
+        "username": "user14",
+        "password": "Password@14",
+        "role": "client",
+        "email": "user14@gmail.com"
+    },
+    {
+        "user_id": "113",
+        "username": "user15",
+        "password": "Password@15",
+        "role": "consultant",
+        "email": "user15@gmail.com"
+    },
+    {
+        "user_id": "115",
+        "username": "user17",
+        "password": "Password@17",
+        "role": "client",
+        "email": "user17@gmail.com"
+    },
+    {
+        "user_id": "116",
+        "username": "user18",
+        "password": "Password@18",
+        "role": "consultant",
+        "email": "user18@gmail.com"
+    },
+    {
+        "user_id": "117",
+        "username": "user19",
+        "password": "Password@19",
+        "role": "client",
+        "email": "user19@gmail.com"
+    },
+    {
+        "user_id": "118",
+        "username": "user20",
+        "password": "Password@20",
+        "role": "consultant",
+        "email": "user20@gmail.com"
+    },
+   
+    {
+        "user_id": "120",
+        "username": "user22",
+        "password": "Password@22",
+        "role": "consultant",
+        "email": "user22@gmail.com"
+    },
+    {
+        "user_id": "121",
+        "username": "user23",
+        "password": "Password@23",
+        "role": "client",
+        "email": "user23@gmail.com"
+    },
+    {
+        "user_id": "122",
+        "username": "user24",
+        "password": "Password@24",
+        "role": "consultant",
+        "email": "user24@gmail.com"
+    },
+    {
+        "user_id": "123",
+        "username": "user25",
+        "password": "Password@25",
+        "role": "client",
+        "email": "user25@gmail.com"
+    }
+]
