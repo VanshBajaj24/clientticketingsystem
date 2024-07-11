@@ -11,6 +11,7 @@ In the realm of customer service and support, effective management of client inq
 2. **Features:** Lists key features and capabilities of the system.
 3. **Installation:** Provides step-by-step instructions on how to install and set up the project locally.
 4. **Usage:** Describes how to use the main functionalities of the application through API endpoints.
+5. **Conclusion:** Summarizes the outcome of the project
 
 
 ## Features
@@ -81,6 +82,6 @@ In the realm of customer service and support, effective management of client inq
 
 - **Logout:** Use the `/logout` endpoint to end the session and log out.
 
-- ## Conclusion
+# Conclusion
 
 - In conclusion, the Client Ticketing System offers a streamlined approach to managing client inquiries and issues, enhancing efficiency and customer satisfaction through effective communication and timely resolution. Powered by Flask and SQL, it stands poised to support organizational success by prioritizing operational excellence and strong client relationships.
