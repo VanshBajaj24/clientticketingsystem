@@ -11,10 +11,7 @@ In the realm of customer service and support, effective management of client inq
 2. **Features:** Lists key features and capabilities of the system.
 3. **Installation:** Provides step-by-step instructions on how to install and set up the project locally.
 4. **Usage:** Describes how to use the main functionalities of the application through API endpoints.
-5. **Contributing:** Encourages contributions and provides guidance on how to contribute to the project.
-6. **License:** Indicates the project's licensing information.
 
-Ensure to replace `<repository-url>` with the actual URL of your project repository. This Markdown format will render well on GitHub, making it easy for users to navigate and understand your project. Adjust the content as necessary to fit specific details or additional instructions relevant to your project setup and usage.
 
 ## Features
 
