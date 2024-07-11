@@ -33,9 +33,9 @@ app.config['MYSQL_DB'] = 'proj'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 app.config['SESSION_PERMANENT'] = True
  
-SMTP_SERVER = 'smtp.gmail.com'  # Replace with your SMTP server
-SMTP_PORT = 587  # Replace with your SMTP server port
-SMTP_USER = 'bajajvansh01@gmail.com'  # Replace with your email
+SMTP_SERVER = 'smtp.gmail.com'  
+SMTP_PORT = 587
+SMTP_USER = 'bajajvansh01@gmail.com'  
 SMTP_PASSWORD = 'sjdw jbjh eity rkvw'
  
 mysql = MySQL(app)
@@ -50,12 +50,6 @@ def role_required(role):
         return decorated_view
     return wrapper
  
-def log_ticket_action(ticket_id, user_id, action):
-    cursor = mysql.connection.cursor()
-    cursor.execute("INSERT INTO TicketLogs (ticket_id, user_id, action) VALUES (%s, %s, %s)",
-                   (ticket_id, user_id, action))
-    mysql.connection.commit()
-    cursor.close()
 def send_email(subject, body, to_email):
     msg = MIMEMultipart()
     msg['From'] = SMTP_USER
@@ -75,42 +69,13 @@ def send_email(subject, body, to_email):
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
 
-def role_required(role):
-    def wrapper(fn):
-        @wraps(fn)
-        def decorated_view(*args, **kwargs):
-            if 'role' in session and session['role'] == role:
-                return fn(*args, **kwargs)
-            return jsonify({'message': f'Unauthorized access for role "{role}".'}), 403
-        return decorated_view
-    return wrapper
-
 def log_ticket_action(ticket_id, user_id, action):
     cursor = mysql.connection.cursor()
     cursor.execute("INSERT INTO TicketLogs (ticket_id, user_id, action) VALUES (%s, %s, %s)",
                    (ticket_id, user_id, action))
     mysql.connection.commit()
     cursor.close()
-def send_email(subject, body, to_email):
-    msg = MIMEMultipart()
-    msg['From'] = SMTP_USER
-    msg['To'] = to_email
-    msg['Subject'] = subject
 
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(SMTP_USER, to_email, text)
-        server.quit()
-        print(f"Email sent to {to_email}")
-    except Exception as e:
-        print(f"Failed to send email to {to_email}: {e}")
-
-# Function to validate email
 def is_valid_email(email):
     try:
         validate_email(email)
@@ -119,7 +84,7 @@ def is_valid_email(email):
         print(str(e))
         return False
 
-# Password Validation Function
+
 class PasswordValidationException(Exception):
     pass
  
@@ -135,8 +100,6 @@ def is_valid_password(password):
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
         raise PasswordValidationException("Password must contain at least one special character.")
     return True
-
-# Routes
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -181,7 +144,7 @@ def login():
         return jsonify({'message': 'Invalid credentials!'}), 401
 
 
-@app.route('/change-password', methods=['POST'])
+@app.route('/change_password', methods=['POST'])
 def change_password():
     data = request.get_json()
     user_id = data.get('user_id')
@@ -196,7 +159,7 @@ def change_password():
     cursor.execute("SELECT * FROM Users WHERE user_id = %s AND email = %s", (user_id, email))
     user = cursor.fetchone()
     
-    if user and check_password_hash(user[2], old_password):  # user[2] is the password_hash column
+    if user and check_password_hash(user[2], old_password): 
         if not is_valid_password(new_password):
             cursor.close()
             return jsonify({'message': 'Invalid new password format! Password must be at least 8 characters long.'}), 400
@@ -220,7 +183,7 @@ def raise_ticket():
     priority = data['priority']
     title = data['title']
     description = data['description']
-    status_id = 1  # Default status for new tickets, which could be 'Open'
+    status_id = 1 
     cursor = mysql.connection.cursor()
     cursor.execute("INSERT INTO tickets (client_id, category_id, priority, title, description, status_id) VALUES (%s, %s, %s, %s, %s, %s)",
                    (client_id, category_id, priority, title, description, status_id))
@@ -249,12 +212,232 @@ def view_tickets():
     cursor.close()
     return jsonify(tickets), 200
 
+@app.route('/recent_first', methods=['GET'])
+@role_required(CLIENT_ROLE)
+def recent_first():
+    client_id = session['user_id']
+    
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT t.ticket_id, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.created_at, t.updated_at "
+                   "FROM Tickets t "
+                   "JOIN TicketCategories tc ON t.category_id = tc.category_id "
+                   "JOIN TicketStatuses ts ON t.status_id = ts.status_id "
+                   "WHERE t.client_id = %s "
+                   "ORDER BY t.created_at DESC", (client_id,))
+    tickets = cursor.fetchall()
+    cursor.close()
+
+    if not tickets:
+        return jsonify({'message': 'No tickets found for the client!'}), 404
+
+    ticket_list = []
+    for ticket in tickets:
+        ticket_dict = {
+            'ticket_id': ticket[0],
+            'category_name': ticket[1],
+            'priority': ticket[2],
+            'title': ticket[3],
+            'description': ticket[4],
+            'status_name': ticket[5],
+            'created_at': ticket[6],
+            'updated_at': ticket[7]
+        }
+        ticket_list.append(ticket_dict)
+
+    return jsonify(ticket_list)
+
+
+@app.route('/export_tickets', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def export_tickets():
+    cursor = mysql.connection.cursor()
+    cursor.execute("""
+        SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description,
+               ts.status_name, t.assigned_to, t.created_at, t.updated_at,
+               (SELECT u2.username FROM Users u2 WHERE u2.user_id = t.assigned_to) as assigned_to_name
+        FROM tickets t
+        JOIN Users u ON t.client_id = u.user_id
+        JOIN TicketCategories tc ON t.category_id = tc.category_id
+        JOIN TicketStatuses ts ON t.status_id = ts.status_id
+        WHERE t.created_at >= NOW() - INTERVAL 6 MONTH
+    """)
+    tickets = cursor.fetchall()
+    cursor.close()
+   
+    csv_file_path = 'tickets.csv'
+   
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        fieldnames = ['ticket_id', 'client_id', 'username', 'category_name', 'priority', 'title', 'description', 'status_name', 'assigned_to', 'assigned_to_name', 'created_at', 'updated_at']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+       
+        writer.writeheader()
+        for ticket in tickets:
+            writer.writerow({
+                'ticket_id': ticket[0],
+                'client_id': ticket[1],
+                'username': ticket[2],
+                'category_name': ticket[3],
+                'priority': ticket[4],
+                'title': ticket[5],
+                'description': ticket[6],
+                'status_name': ticket[7],
+                'assigned_to': ticket[8],
+                'created_at': ticket[9],
+                'updated_at': ticket[10],
+                'assigned_to_name': ticket[11]
+            })
+   
+    return send_file(csv_file_path, as_attachment=True)
+
+@app.route('/generate_reports', methods=['GET'])
+@role_required(MANAGER_ROLE)
+def generate_reports():
+    query = "SELECT role, COUNT(*) as count FROM Users GROUP BY role"
+    user_roles_counts_df = pd.read_sql(query, mysql.connection, index_col='role')
+ 
+    df = pd.read_csv('tickets.csv')
+ 
+    priority_mapping = {'High': 3, 'Medium': 2, 'Low': 1}
+    df['priority'] = df['priority'].map(priority_mapping)
+ 
+    status_counts = df['status_name'].value_counts()
+ 
+    average_priority_by_category = df.groupby('category_name')['priority'].mean()
+ 
+    assigned_to_counts = df['assigned_to'].value_counts()
+ 
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    tickets_over_time = df['created_at'].dt.date.value_counts().sort_index()
+ 
+    df['updated_at'] = pd.to_datetime(df['updated_at'])
+    closed_tickets = df[df['status_name'] == 'Closed']
+    closed_tickets_over_time = closed_tickets['updated_at'].dt.date.value_counts().sort_index()
+
+    df_last_6_months = df[df['created_at'] >= pd.Timestamp.now() - pd.DateOffset(months=6)]
+    tickets_by_client = df_last_6_months['client_id'].value_counts(normalize=True) * 100
+ 
+    plots = []
+ 
+    # Plot Count of Tickets by Status
+    plt.figure(figsize=(10, 6))
+    ax = status_counts.plot(kind='bar', color='skyblue')
+    plt.title('Count of Tickets by Status')
+    plt.xlabel('Status')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+
+    for i in ax.containers:
+        ax.bar_label(i,)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    # Plot Average Ticket Priority by Category
+    plt.figure(figsize=(10, 6))
+    ax = average_priority_by_category.plot(kind='bar', color='green')
+    plt.title('Average Ticket Priority by Category')
+    plt.xlabel('Category')
+    plt.ylabel('Average Priority')
+    plt.xticks(rotation=45)
+    for i in ax.containers:
+        ax.bar_label(i,)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    # Bar chart of count of tickets by assigned consultant
+    plt.figure(figsize=(10, 6))
+    ax = assigned_to_counts.plot(kind='bar', color='purple')
+    plt.title('Count of Tickets by Assigned Consultant')
+    plt.xlabel('Consultant')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    for i in ax.containers:
+        ax.bar_label(i,)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    # Line chart of tickets over time
+    plt.figure(figsize=(10, 6))
+    ax = tickets_over_time.plot(kind='line', color='orange', marker='o')
+    plt.title('Tickets Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.grid(True)
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    # Plot the percentage of tickets raised by different clients in the last 6 months
+    plt.figure(figsize=(10, 6))
+    ax = tickets_by_client.plot(kind='bar', color='blue')
+    plt.title('Percentage of Tickets Raised by Clients in Last 6 Months')
+    plt.xlabel('Client ID')
+    plt.ylabel('Percentage')
+    plt.xticks(rotation=45)
+    for i in ax.containers:
+        ax.bar_label(i, fmt='%.1f%%')
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+
+    # Pie chart of user roles
+    plt.figure(figsize=(10, 6))
+    user_roles_counts_df['count'].plot(kind='pie', autopct='%1.1f%%', colors=['red', 'blue', 'yellow'], startangle=140)
+    plt.title('User Roles Distribution')
+    plt.ylabel('')  
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    # Bar chart of closed tickets over time with at least 10 dates and y-axis limit of at least 10
+    if len(closed_tickets_over_time) < 10:
+        min_date = closed_tickets_over_time.index.min()
+        max_date = closed_tickets_over_time.index.max()
+        all_dates = pd.date_range(start=min_date, end=max_date + pd.Timedelta(days=10 - len(closed_tickets_over_time)))
+        closed_tickets_over_time = closed_tickets_over_time.reindex(all_dates, fill_value=0)
+ 
+    plt.figure(figsize=(10, 6))
+    ax = closed_tickets_over_time.plot(kind='bar', color='red', width=0.5)
+    plt.title('Closed Tickets Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.ylim(0, max(10, closed_tickets_over_time.max() + 1))
+    plt.tight_layout()
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    img.seek(0)
+    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
+    plt.close()
+ 
+    return render_template('plots.html', plots=plots)
+
+
 @app.route('/manage_tickets', methods=['GET'])
 @role_required(MANAGER_ROLE)
 def manage_tickets():
     cursor = mysql.connection.cursor()
     
-    # Get ticket details
     cursor.execute(
         "SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description, ts.status_name, t.assigned_to "
         "FROM tickets t "
@@ -298,7 +481,6 @@ def assign_ticket(ticket_id):
     
     cursor = mysql.connection.cursor()
     
-    # Check if the assigned_to user is a consultant
     cursor.execute("SELECT role FROM users WHERE user_id = %s", (assigned_to,))
     result = cursor.fetchone()
     
@@ -339,7 +521,6 @@ def update_ticket_status(ticket_id):
     else:
         return jsonify({'message': 'Unauthorized access!'}), 403
 
-    # Check if the logged-in user is the consultant assigned to this ticket (if consultant)
     if user_role == CONSULTANT_ROLE:
         cursor = mysql.connection.cursor()
         cursor.execute("SELECT assigned_to FROM tickets WHERE ticket_id = %s", (ticket_id,))
@@ -377,188 +558,12 @@ def update_ticket_status(ticket_id):
         send_email("Ticket Resolved", f"Your ticket with ID {ticket_id} has been resolved.", email)
 
     return jsonify({'message': f'Ticket status updated to {new_status} successfully!'}), 200
-
-
-@app.route('/export_tickets', methods=['GET'])
-@role_required(MANAGER_ROLE)
-def export_tickets():
-    cursor = mysql.connection.cursor()
-    cursor.execute("""
-        SELECT t.ticket_id, t.client_id, u.username, tc.category_name, t.priority, t.title, t.description,
-               ts.status_name, t.assigned_to, t.created_at, t.updated_at,
-               (SELECT u2.username FROM Users u2 WHERE u2.user_id = t.assigned_to) as assigned_to_name
-        FROM tickets t
-        JOIN Users u ON t.client_id = u.user_id
-        JOIN TicketCategories tc ON t.category_id = tc.category_id
-        JOIN TicketStatuses ts ON t.status_id = ts.status_id
-    """)
-    tickets = cursor.fetchall()
-    cursor.close()
-   
-    csv_file_path = 'tickets.csv'
-   
-    with open(csv_file_path, 'w', newline='') as csvfile:
-        fieldnames = ['ticket_id', 'client_id', 'username', 'category_name', 'priority', 'title', 'description', 'status_name', 'assigned_to', 'assigned_to_name', 'created_at', 'updated_at']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-       
-        writer.writeheader()
-        for ticket in tickets:
-            writer.writerow({
-                'ticket_id': ticket[0],
-                'client_id': ticket[1],
-                'username': ticket[2],
-                'category_name': ticket[3],
-                'priority': ticket[4],
-                'title': ticket[5],
-                'description': ticket[6],
-                'status_name': ticket[7],
-                'assigned_to': ticket[8],
-                'created_at': ticket[9],
-                'updated_at': ticket[10],
-                'assigned_to_name': ticket[11]
-            })
-   
-    return send_file(csv_file_path, as_attachment=True)
-@app.route('/generate_reports', methods=['GET'])
-@role_required(MANAGER_ROLE)
-def generate_reports():
-    query = "SELECT role, COUNT(*) as count FROM Users GROUP BY role"
-    user_roles_counts_df = pd.read_sql(query, mysql.connection, index_col='role')
- 
-    # Read tickets data from CSV
-    df = pd.read_csv('tickets.csv')
- 
-    # Ensure 'priority' column has numeric values by mapping categories to numbers
-    priority_mapping = {'High': 3, 'Medium': 2, 'Low': 1}
-    df['priority'] = df['priority'].map(priority_mapping)
- 
-    # Calculate the status counts
-    status_counts = df['status_name'].value_counts()
- 
-    # Calculate the average priority by category
-    average_priority_by_category = df.groupby('category_name')['priority'].mean()
- 
-    # Calculate the count of tickets by assigned consultant
-    assigned_to_counts = df['assigned_to'].value_counts()
- 
-    # Ensure 'created_at' column is in datetime format
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    tickets_over_time = df['created_at'].dt.date.value_counts().sort_index()
- 
-    # Filter closed tickets and ensure 'updated_at' column is in datetime format
-    df['updated_at'] = pd.to_datetime(df['updated_at'])
-    closed_tickets = df[df['status_name'] == 'Closed']
-    closed_tickets_over_time = closed_tickets['updated_at'].dt.date.value_counts().sort_index()
- 
-    plots = []
- 
-    # Plot Count of Tickets by Status
-    plt.figure(figsize=(10, 6))
-    ax = status_counts.plot(kind='bar', color='skyblue')
-    plt.title('Count of Tickets by Status')
-    plt.xlabel('Status')
-    plt.ylabel('Count')
-    plt.xticks(rotation=45)
-    # Annotate each bar with the count
-    for i in ax.containers:
-        ax.bar_label(i,)
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    # Plot Average Ticket Priority by Category
-    plt.figure(figsize=(10, 6))
-    ax = average_priority_by_category.plot(kind='bar', color='green')
-    plt.title('Average Ticket Priority by Category')
-    plt.xlabel('Category')
-    plt.ylabel('Average Priority')
-    plt.xticks(rotation=45)
-    # Annotate each bar with the average priority
-    for i in ax.containers:
-        ax.bar_label(i,)
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    # Bar chart of count of tickets by assigned consultant
-    plt.figure(figsize=(10, 6))
-    ax = assigned_to_counts.plot(kind='bar', color='purple')
-    plt.title('Count of Tickets by Assigned Consultant')
-    plt.xlabel('Consultant')
-    plt.ylabel('Count')
-    plt.xticks(rotation=45)
-    # Annotate each bar with the count
-    for i in ax.containers:
-        ax.bar_label(i,)
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    # Line chart of tickets over time
-    plt.figure(figsize=(10, 6))
-    ax = tickets_over_time.plot(kind='line', color='orange', marker='o')
-    plt.title('Tickets Over Time')
-    plt.xlabel('Date')
-    plt.ylabel('Count')
-    plt.grid(True)
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    # Pie chart of user roles
-    plt.figure(figsize=(10, 6))
-    user_roles_counts_df['count'].plot(kind='pie', autopct='%1.1f%%', colors=['red', 'blue', 'yellow'], startangle=140)
-    plt.title('User Roles Distribution')
-    plt.ylabel('')  # Hide the y-label to make the chart look cleaner
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    # Bar chart of closed tickets over time with at least 10 dates and y-axis limit of at least 10
-    if len(closed_tickets_over_time) < 10:
-        min_date = closed_tickets_over_time.index.min()
-        max_date = closed_tickets_over_time.index.max()
-        all_dates = pd.date_range(start=min_date, end=max_date + pd.Timedelta(days=10 - len(closed_tickets_over_time)))
-        closed_tickets_over_time = closed_tickets_over_time.reindex(all_dates, fill_value=0)
- 
-    plt.figure(figsize=(10, 6))
-    ax = closed_tickets_over_time.plot(kind='bar', color='red', width=0.5)
-    plt.title('Closed Tickets Over Time')
-    plt.xlabel('Date')
-    plt.ylabel('Count')
-    plt.xticks(rotation=45)
-    plt.ylim(0, max(10, closed_tickets_over_time.max() + 1))
-    plt.tight_layout()
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plots.append(base64.b64encode(img.getvalue()).decode('utf8'))
-    plt.close()
- 
-    return render_template('plots.html', plots=plots)
-
-                   
+          
 @app.route('/consultant_tickets', methods=['GET'])
 @role_required(CONSULTANT_ROLE)
 def consultant_tickets():
     consultant_id = session.get('user_id')
 
-    # Fetch tickets assigned to the consultant from the database
     cursor = mysql.connection.cursor()
     cursor.execute("SELECT t.ticket_id, tc.category_name, t.priority, t.title, t.description, ts.status_name "
                    "FROM tickets t "
@@ -568,7 +573,6 @@ def consultant_tickets():
     tickets = cursor.fetchall()
     cursor.close()
 
-    # Prepare JSON response
     ticket_list = []
     for ticket in tickets:
         ticket_dict = {
