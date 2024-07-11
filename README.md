@@ -6,11 +6,12 @@ In the realm of customer service and support, effective management of client inq
 
 ## Features
 
-- **User Roles:** Supports roles for clients, managers, and consultants.
-- **Ticket Management:** Create, view, and manage tickets with different statuses.
-- **Password Management:** Secure password storage and change functionalities.
-- **Email Notifications:** Send email notifications for ticket updates.
-- **Reporting:** Generate various reports using data analytics on ticketing activities.
+- **User Authentication and Authorization:** Implementing secure login mechanisms for clients, managers, and developers/consultants.
+- **Database Management:** Utilizing MySQL for efficient data storage and retrieval of ticket information.
+- **REST API Development:** Creating RESTful APIs using Python Flask for seamless interaction between the front-end and back-end components.
+- **Data Processing:** Employing Pandas and NumPy for data manipulation and analysis.
+- **User Interface Design:** Developing an intuitive user interface for clients, managers, and developers/consultants to interact with the system.
+- **Notification System: ** Implementing email or in-app notifications to inform users of ticket status changes.
 
 ## Installation
 
